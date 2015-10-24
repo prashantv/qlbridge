@@ -92,12 +92,12 @@ func (m *SqlDriverMessageMap) Body() interface{}         { return m }
 func (m *SqlDriverMessageMap) Values() []driver.Value    { return m.row }
 func (m *SqlDriverMessageMap) SetRow(row []driver.Value) { m.row = row }
 func (m *SqlDriverMessageMap) Ts() time.Time             { return time.Time{} }
-func (m *SqlDriverMessageMap) Get(key string) (value.Value, bool) {
+func (m *SqlDriverMessageMap) Get(key string) (value.Value, error) {
 	if idx, ok := m.colindex[key]; ok {
-		return value.NewValue(m.row[idx]), true
+		return value.NewValue(m.row[idx]), nil
 	}
 	//u.Debugf("could not find: %v in %#v", key, m.colindex)
-	return nil, true
+	return nil, nil
 }
 func (m *SqlDriverMessageMap) Row() map[string]value.Value {
 	row := make(map[string]value.Value)
@@ -126,13 +126,10 @@ func NewValueContextWrapper(msg *SqlDriverMessage, cols map[string]*expr.Column)
 func (m *ValueContextWrapper) Get(key string) (value.Value, bool) {
 	if col, ok := m.cols[key]; ok {
 		if col.Index < len(m.Vals) {
-			return value.NewValue(m.Vals[col.Index]), true
+			return value.NewValue(m.Vals[col.Index]), nil
 		}
-		//u.Debugf("could not find index?: %v col.idx:%v   len(vals)=%v", key, col.Index, len(m.Vals))
-	} else {
-		//u.Debugf("could not find key: %v", key)
 	}
-	return nil, true
+	return nil, nil
 }
 func (m *ValueContextWrapper) Row() map[string]value.Value {
 	row := make(map[string]value.Value)

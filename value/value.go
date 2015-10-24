@@ -48,7 +48,7 @@ var (
 	EmptyMapBoolValue   = NewMapBoolValue(make(map[string]bool))
 	NilStructValue      = NewStructValue(nilStruct)
 	TimeZeroValue       = NewTimeValue(time.Time{})
-	ErrValue            = NewErrorValue("")
+	ErrValue            = NewErrorValue(fmt.Errorf(""))
 
 	_ Value = (StringValue)(EmptyStringValue)
 
@@ -211,7 +211,7 @@ type (
 		rv reflect.Value
 	}
 	ErrorValue struct {
-		v  string
+		v  error
 		rv reflect.Value
 	}
 	NilValue struct{}
@@ -718,12 +718,12 @@ func (m TimeValue) Float() float64                    { return float64(m.v.UnixN
 func (m TimeValue) Int() int64                        { return m.v.UnixNano() / 1e6 }
 func (m TimeValue) Time() time.Time                   { return m.v }
 
-func NewErrorValue(v string) ErrorValue {
-	return ErrorValue{v: v, rv: reflect.ValueOf(v)}
+func NewErrorValue(err error) ErrorValue {
+	return ErrorValue{v: err, rv: reflect.ValueOf(err)}
 }
 
 func NewErrorValuef(v string, args ...interface{}) ErrorValue {
-	return ErrorValue{v: fmt.Sprintf(v, args...), rv: reflect.ValueOf(v)}
+	return ErrorValue{v: fmt.Errorf(v, args...), rv: reflect.ValueOf(v)}
 }
 
 func (m ErrorValue) Nil() bool                         { return false }
@@ -732,13 +732,14 @@ func (m ErrorValue) Type() ValueType                   { return ErrorType }
 func (m ErrorValue) Rv() reflect.Value                 { return m.rv }
 func (m ErrorValue) CanCoerce(toRv reflect.Value) bool { return false }
 func (m ErrorValue) Value() interface{}                { return m.v }
-func (m ErrorValue) Val() string                       { return m.v }
+func (m ErrorValue) ErrVal() error                     { return m.v }
+func (m ErrorValue) Val() string                       { return m.v.Error() }
 func (m ErrorValue) MarshalJSON() ([]byte, error)      { return json.Marshal(m.v) }
-func (m ErrorValue) ToString() string                  { return m.v }
+func (m ErrorValue) ToString() string                  { return m.v.Error() }
 
 // ErrorValues implement Go's error interface so they can easily cross the
 // VM/Go boundary.
-func (m ErrorValue) Error() string { return m.v }
+func (m ErrorValue) Error() string { return m.v.Error() }
 
 func NewNilValue() NilValue {
 	return NilValue{}

@@ -17,19 +17,23 @@ func EvalSql(sel *expr.SqlSelect, writeContext expr.ContextWriter, readContext e
 	// Check and see if we are where Guarded, which would discard the entire message
 	if sel.Where != nil {
 
-		whereValue, ok := Eval(readContext, sel.Where)
-		if !ok {
+		whereValue, err := Eval(readContext, sel.Where)
+		if err != nil {
 			// TODO:  seriously re-think this.   If the where clause is not able to evaluate
 			//     such as  WHERE contains(ip,"10.120.") due to missing IP, does that mean it is
 			//      logically true?   Would we not need to correctly evaluate and = true to filter?
 			//      Marek made a good point, they would need to expand logical statement to include OR
-			return false, nil
+			return false, err
 		}
 		switch whereVal := whereValue.(type) {
 		case value.BoolValue:
 			if whereVal.Val() == false {
 				return false, nil
 			}
+		case nil, value.NilValue:
+			return true, nil
+		case value.ErrorValue:
+			return true, whereVal.ErrVal()
 		default:
 			if whereVal.Nil() {
 				return false, nil
@@ -42,9 +46,9 @@ func EvalSql(sel *expr.SqlSelect, writeContext expr.ContextWriter, readContext e
 
 		//u.Debugf("Eval Col.As:%v mt:%v %#v Has IF Guard?%v ", col.As, col.MergeOp.String(), col, col.Guard != nil)
 		if col.Guard != nil {
-			ifColValue, ok := Eval(readContext, col.Guard)
-			if !ok {
-				u.Debugf("Could not evaluate if:  T:%T  v:%v", col.Guard, col.Guard.String())
+			ifColValue, err := Eval(readContext, col.Guard)
+			if err != nil {
+				u.Warnf("Could not evaluate if:  T:%T  v:%v", col.Guard, col.Guard.String(), err)
 				continue
 			}
 			switch ifVal := ifColValue.(type) {
@@ -52,6 +56,10 @@ func EvalSql(sel *expr.SqlSelect, writeContext expr.ContextWriter, readContext e
 				if ifVal.Val() == false {
 					continue // filter out this col
 				}
+			case nil, value.NilValue:
+				continue
+			case value.ErrorValue:
+				continue
 			default:
 				if ifColValue.Nil() {
 					continue // filter out this col
@@ -60,13 +68,14 @@ func EvalSql(sel *expr.SqlSelect, writeContext expr.ContextWriter, readContext e
 
 		}
 
-		v, ok := Eval(readContext, col.Expr)
-		if !ok {
-			u.Warnf("Could not evaluate %s", col.Expr)
-		} else {
-			//u.Debugf(`writeContext.Put("%v",%v)  %s`, col.As, v.Value(), col.String())
-			writeContext.Put(col, readContext, v)
+		v, err := Eval(readContext, col.Expr)
+		if err != nil {
+			u.Warnf("Could not evaluate %s  err=%v", col.Expr, err)
+			return false, err
 		}
+
+		//u.Debugf(`writeContext.Put("%v",%v)  %s`, col.As, v.Value(), col.String())
+		writeContext.Put(col, readContext, v)
 
 	}
 

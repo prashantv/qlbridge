@@ -56,7 +56,7 @@ func NewState(vm ExprVm, read expr.ContextReader, write expr.ContextWriter) *Sta
 type EvalBaseContext struct {
 	expr.ContextReader
 }
-type EvaluatorFunc func(ctx expr.EvalContext) (value.Value, bool)
+type EvaluatorFunc func(ctx expr.EvalContext) (value.Value, error)
 
 type ExprVm interface {
 	Execute(writeContext expr.ContextWriter, readContext expr.ContextReader) error
@@ -97,12 +97,10 @@ func (m *Vm) Execute(writeContext expr.ContextWriter, readContext expr.ContextRe
 	}
 	s.rv = reflect.ValueOf(s)
 	//u.Debugf("vm.Execute:  %#v", m.Tree.Root)
-	v, ok := s.Walk(m.Tree.Root)
-	//u.Infof("v:%v  ok?%v", v, ok)
+	v, err := s.Walk(m.Tree.Root)
 
-	// vm unable to walk tree
-	if !ok {
-		return ErrExecute
+	if err != nil {
+		return err
 	}
 
 	// vm returned an error value
@@ -134,7 +132,7 @@ func errRecover(errp *error) {
 
 // creates a new Value with a nil group and given value.
 // TODO:  convert this to an interface method on nodes called Value()
-func numberNodeToValue(t *expr.NumberNode) (value.Value, bool) {
+func numberNodeToValue(t *expr.NumberNode) (value.Value, error) {
 	//u.Debugf("nodeToValue()  isFloat?%v", t.IsFloat)
 	var v value.Value
 	if t.IsInt {
@@ -143,43 +141,44 @@ func numberNodeToValue(t *expr.NumberNode) (value.Value, bool) {
 		fv, ok := value.ToFloat64(reflect.ValueOf(t.Text))
 		if !ok {
 			u.Warnf("Could not perform numeric conversion for %q", t.Text)
-			return value.NilValueVal, false
+			return value.NilValueVal, fmt.Errorf("Could not convert to number %v", t.Text)
 		}
 		v = value.NewNumberValue(fv)
 	} else {
 		u.Warnf("Could not find numeric conversion for %v", t.Type())
-		return value.NilValueVal, false
+		return value.NilValueVal, nil
 	}
 	//u.Debugf("return nodeToValue()	%v  %T  arg:%T", v, v, t)
-	return v, true
+	return v, nil
 }
 
 func Evaluator(arg expr.Node) EvaluatorFunc {
 	//u.Debugf("Evaluator() node=%T  %v", arg, arg)
 	switch argVal := arg.(type) {
 	case *expr.NumberNode:
-		return func(ctx expr.EvalContext) (value.Value, bool) { return numberNodeToValue(argVal) }
+		return func(ctx expr.EvalContext) (value.Value, error) { return numberNodeToValue(argVal) }
 	case *expr.BinaryNode:
-		return func(ctx expr.EvalContext) (value.Value, bool) { return walkBinary(ctx, argVal) }
+		return func(ctx expr.EvalContext) (value.Value, error) { return walkBinary(ctx, argVal) }
 	case *expr.UnaryNode:
-		return func(ctx expr.EvalContext) (value.Value, bool) { return walkUnary(ctx, argVal) }
+		return func(ctx expr.EvalContext) (value.Value, error) { return walkUnary(ctx, argVal) }
 	case *expr.FuncNode:
-		return func(ctx expr.EvalContext) (value.Value, bool) { return walkFunc(ctx, argVal) }
+		return func(ctx expr.EvalContext) (value.Value, error) { return walkFunc(ctx, argVal) }
 	case *expr.IdentityNode:
-		return func(ctx expr.EvalContext) (value.Value, bool) { return walkIdentity(ctx, argVal) }
+		return func(ctx expr.EvalContext) (value.Value, error) { return walkIdentity(ctx, argVal) }
 	case *expr.StringNode:
-		return func(ctx expr.EvalContext) (value.Value, bool) { return value.NewStringValue(argVal.Text), true }
+		return func(ctx expr.EvalContext) (value.Value, error) { return value.NewStringValue(argVal.Text), nil }
 	case *expr.TriNode:
-		return func(ctx expr.EvalContext) (value.Value, bool) { return walkTri(ctx, argVal) }
+		return func(ctx expr.EvalContext) (value.Value, error) { return walkTri(ctx, argVal) }
 	case *expr.MultiArgNode:
-		return func(ctx expr.EvalContext) (value.Value, bool) { return walkMulti(ctx, argVal) }
+		return func(ctx expr.EvalContext) (value.Value, error) { return walkMulti(ctx, argVal) }
 	default:
-		u.Errorf("Unknonwn node type:  %T", argVal)
-		panic(ErrUnknownNodeType)
+		return func(ctx expr.EvalContext) (value.Value, error) {
+			return nil, fmt.Errorf("Unknown Node Type %T", argVal)
+		}
 	}
 }
 
-func Eval(ctx expr.EvalContext, arg expr.Node) (value.Value, bool) {
+func Eval(ctx expr.EvalContext, arg expr.Node) (value.Value, error) {
 	//u.Debugf("Eval() node=%T  %v", arg, arg)
 	// can we switch to arg.Type()
 	switch argVal := arg.(type) {
@@ -198,30 +197,29 @@ func Eval(ctx expr.EvalContext, arg expr.Node) (value.Value, bool) {
 	case *expr.IdentityNode:
 		return walkIdentity(ctx, argVal)
 	case *expr.StringNode:
-		return value.NewStringValue(argVal.Text), true
+		return value.NewStringValue(argVal.Text), nil
 	case nil:
-		return nil, true
+		return nil, nil
 	default:
-		u.Errorf("Unknonwn node type:  %T", argVal)
-		panic(ErrUnknownNodeType)
+		return nil, fmt.Errorf("Unknown Node Type %T", argVal)
 	}
 }
 
-func (e *State) Walk(arg expr.Node) (value.Value, bool) {
+func (e *State) Walk(arg expr.Node) (value.Value, error) {
 	return Eval(e.ContextReader, arg)
 }
 
-func walkBinary(ctx expr.EvalContext, node *expr.BinaryNode) (value.Value, bool) {
-	ar, aok := Eval(ctx, node.Args[0])
-	br, bok := Eval(ctx, node.Args[1])
-	if !aok || !bok {
+func walkBinary(ctx expr.EvalContext, node *expr.BinaryNode) (value.Value, error) {
+	ar, aerr := Eval(ctx, node.Args[0])
+	br, berr := Eval(ctx, node.Args[1])
+	if aerr != nil || berr != nil {
 		// If !aok, but token is a Negate?
-		u.Debugf("walkBinary not ok: op=%s %v  l:%v  r:%v  %T  %T", node.Operator, node, ar, br, ar, br)
+		u.Warnf("walkBinary not ok: op=%s %v  l:%v  r:%v  %T  %T", node.Operator, node, ar, br, ar, br)
 		//u.Debugf("node: %s   --- %s", node.Args[0], node.Args[1])
 		// if ar != nil && br != nil {
 		// 	u.Debugf("not ok: %v  l:%v  r:%v", node, ar.ToString(), br.ToString())
 		// }
-		return nil, false
+		return nil, fmt.Errorf("aerr:%v berr:%v", aerr, berr)
 	}
 	// if ar == nil {
 	// 	u.Warnf("Wat? %q node0: %#v", node.Args[0], node.Args[0])
@@ -239,11 +237,11 @@ func walkBinary(ctx expr.EvalContext, node *expr.BinaryNode) (value.Value, bool)
 		case value.IntValue:
 			//u.Debugf("doing operate ints  %v %v  %v", at, node.Operator.V, bt)
 			n := operateInts(node.Operator, at, bt)
-			return n, true
+			return n, nil
 		case value.NumberValue:
 			//u.Debugf("doing operate ints/numbers  %v %v  %v", at, node.Operator.V, bt)
 			n := operateNumbers(node.Operator, at.NumberValue(), bt)
-			return n, true
+			return n, nil
 		default:
 			u.Errorf("unknown type:  %T %v", bt, bt)
 		}
@@ -251,10 +249,10 @@ func walkBinary(ctx expr.EvalContext, node *expr.BinaryNode) (value.Value, bool)
 		switch bt := br.(type) {
 		case value.IntValue:
 			n := operateNumbers(node.Operator, at, bt.NumberValue())
-			return n, true
+			return n, nil
 		case value.NumberValue:
 			n := operateNumbers(node.Operator, at, bt)
-			return n, true
+			return n, nil
 		default:
 			u.Errorf("unknown type:  %T %v", bt, bt)
 		}
@@ -264,31 +262,31 @@ func walkBinary(ctx expr.EvalContext, node *expr.BinaryNode) (value.Value, bool)
 			atv, btv := at.Value().(bool), bt.Value().(bool)
 			switch node.Operator.T {
 			case lex.TokenLogicAnd:
-				return value.NewBoolValue(atv && btv), true
+				return value.NewBoolValue(atv && btv), nil
 			case lex.TokenLogicOr, lex.TokenOr:
-				return value.NewBoolValue(atv || btv), true
+				return value.NewBoolValue(atv || btv), nil
 			case lex.TokenEqualEqual, lex.TokenEqual:
-				return value.NewBoolValue(atv == btv), true
+				return value.NewBoolValue(atv == btv), nil
 			case lex.TokenNE:
-				return value.NewBoolValue(atv != btv), true
+				return value.NewBoolValue(atv != btv), nil
 			default:
 				u.Warnf("bool binary?:  %#v  %v %v", node, at, bt)
 			}
 		case nil, value.NilValue:
 			switch node.Operator.T {
 			case lex.TokenLogicAnd:
-				return value.NewBoolValue(false), true
+				return value.NewBoolValue(false), nil
 			case lex.TokenLogicOr, lex.TokenOr:
-				return at, true
+				return at, nil
 			case lex.TokenEqualEqual, lex.TokenEqual:
-				return value.NewBoolValue(false), true
+				return value.NewBoolValue(false), nil
 			case lex.TokenNE:
-				return value.NewBoolValue(true), true
+				return value.NewBoolValue(true), nil
 			// case lex.TokenGE, lex.TokenGT, lex.TokenLE, lex.TokenLT:
 			// 	return value.NewBoolValue(false), true
 			default:
 				u.Warnf("right side nil binary:  %q", node)
-				return nil, true
+				return nil, nil
 			}
 		default:
 			u.Warnf("br: %#v", br)
@@ -298,39 +296,39 @@ func walkBinary(ctx expr.EvalContext, node *expr.BinaryNode) (value.Value, bool)
 		switch bt := br.(type) {
 		case value.StringValue:
 			// Nice, both strings
-			return operateStrings(node.Operator, at, bt), true
+			return operateStrings(node.Operator, at, bt), nil
 		case nil, value.NilValue:
 			switch node.Operator.T {
 			case lex.TokenEqualEqual, lex.TokenEqual:
 				if at.Nil() {
-					return value.NewBoolValue(true), true
+					return value.NewBoolValue(true), nil
 				}
-				return value.NewBoolValue(false), true
+				return value.NewBoolValue(false), nil
 			case lex.TokenNE:
 				if at.Nil() {
-					return value.NewBoolValue(false), true
+					return value.NewBoolValue(false), nil
 				}
-				return value.NewBoolValue(true), true
+				return value.NewBoolValue(true), nil
 			default:
 				u.Warnf("unsupported op: %v", node.Operator)
-				return nil, false
+				return nil, fmt.Errorf("unsupported op: %v", node.Operator)
 			}
 		case value.BoolValue:
 			if value.IsBool(at.Val()) {
 				//u.Warnf("bool eval:  %v %v %v  :: %v", value.BoolStringVal(at.Val()), node.Operator.T.String(), bt.Val(), value.NewBoolValue(value.BoolStringVal(at.Val()) == bt.Val()))
 				switch node.Operator.T {
 				case lex.TokenEqualEqual, lex.TokenEqual:
-					return value.NewBoolValue(value.BoolStringVal(at.Val()) == bt.Val()), true
+					return value.NewBoolValue(value.BoolStringVal(at.Val()) == bt.Val()), nil
 				case lex.TokenNE:
-					return value.NewBoolValue(value.BoolStringVal(at.Val()) != bt.Val()), true
+					return value.NewBoolValue(value.BoolStringVal(at.Val()) != bt.Val()), nil
 				default:
 					u.Warnf("unsupported op: %v", node.Operator)
-					return nil, false
+					return nil, fmt.Errorf("unsupported op: %v", node.Operator)
 				}
 			} else {
 				// Should we evaluate strings that are non-nil to be = true?
 				u.Debugf("not handled: boolean %v %T=%v  expr: %s", node.Operator, at.Value(), at.Val(), node.String())
-				return nil, false
+				return nil, fmt.Errorf("unhandled boolean: %v   %#v", node.Operator, at)
 			}
 		default:
 			// TODO:  this doesn't make sense, we should be able to operate on other types
@@ -338,13 +336,13 @@ func walkBinary(ctx expr.EvalContext, node *expr.BinaryNode) (value.Value, bool)
 				switch bt := br.(type) {
 				case value.StringValue:
 					n := operateNumbers(node.Operator, at.NumberValue(), bt.NumberValue())
-					return n, true
+					return n, nil
 				case value.IntValue:
 					n := operateNumbers(node.Operator, at.NumberValue(), bt.NumberValue())
-					return n, true
+					return n, nil
 				case value.NumberValue:
 					n := operateNumbers(node.Operator, at.NumberValue(), bt)
-					return n, true
+					return n, nil
 				default:
 					u.Errorf("at?%T  %v  coerce?%v bt? %T     %v", at, at.Value(), at.CanCoerce(stringRv), bt, bt.Value())
 				}
@@ -355,57 +353,57 @@ func walkBinary(ctx expr.EvalContext, node *expr.BinaryNode) (value.Value, bool)
 	case nil, value.NilValue:
 		switch node.Operator.T {
 		case lex.TokenLogicAnd:
-			return value.NewBoolValue(false), true
+			return value.NewBoolValue(false), nil
 		case lex.TokenLogicOr, lex.TokenOr:
 			switch bt := br.(type) {
 			case value.BoolValue:
-				return bt, true
+				return bt, nil
 			default:
-				return value.NewBoolValue(false), true
+				return value.NewBoolValue(false), nil
 			}
 		case lex.TokenEqualEqual, lex.TokenEqual:
 			// does nil==nil  = true ??
 			switch br.(type) {
 			case nil, value.NilValue:
-				return value.NewBoolValue(true), true
+				return value.NewBoolValue(true), nil
 			default:
-				return value.NewBoolValue(false), true
+				return value.NewBoolValue(false), nil
 			}
 		case lex.TokenNE:
-			return value.NewBoolValue(true), true
+			return value.NewBoolValue(true), nil
 		// case lex.TokenGE, lex.TokenGT, lex.TokenLE, lex.TokenLT:
 		// 	return value.NewBoolValue(false), true
 		default:
 			u.Debugf("left side nil binary:  %q", node)
-			return nil, true
+			return nil, nil
 		}
 	default:
 		u.Debugf("Unknown op?  %T  %T  %v", ar, at, ar)
-		return value.NewErrorValue(fmt.Sprintf("unsupported left side value: %T in %s", at, node)), false
+		return nil, fmt.Errorf("unsupported left side value: %T in %s", at, node)
 	}
 
-	return value.NewErrorValue(fmt.Sprintf("unsupported binary expression: %s", node)), false
+	return nil, fmt.Errorf("unsupported binary expression: %s", node)
 }
 
-func walkIdentity(ctx expr.EvalContext, node *expr.IdentityNode) (value.Value, bool) {
+func walkIdentity(ctx expr.EvalContext, node *expr.IdentityNode) (value.Value, error) {
 
 	if node.IsBooleanIdentity() {
 		//u.Debugf("walkIdentity() boolean: node=%T  %v Bool:%v", node, node, node.Bool())
-		return value.NewBoolValue(node.Bool()), true
+		return value.NewBoolValue(node.Bool()), nil
 	}
 	if ctx == nil {
-		return value.NewStringValue(node.Text), true
+		return value.NewStringValue(node.Text), nil
 	}
 	//u.Debugf("walkIdentity() node=%T  %v", node, node)
 	return ctx.Get(node.Text)
 }
 
-func walkUnary(ctx expr.EvalContext, node *expr.UnaryNode) (value.Value, bool) {
+func walkUnary(ctx expr.EvalContext, node *expr.UnaryNode) (value.Value, error) {
 
 	a, ok := Eval(ctx, node.Arg)
 	if !ok {
 		if node.Operator.T == lex.TokenExists {
-			return value.NewBoolValue(false), true
+			return value.NewBoolValue(false), nil
 		}
 		u.Debugf("unary could not evaluate %#v", node)
 		return a, false
@@ -443,7 +441,7 @@ func walkUnary(ctx expr.EvalContext, node *expr.UnaryNode) (value.Value, bool) {
 //
 //     A   BETWEEN   B  AND C
 //
-func walkTri(ctx expr.EvalContext, node *expr.TriNode) (value.Value, bool) {
+func walkTri(ctx expr.EvalContext, node *expr.TriNode) (value.Value, error) {
 
 	a, aok := Eval(ctx, node.Args[0])
 	b, bok := Eval(ctx, node.Args[1])
@@ -498,7 +496,7 @@ func walkTri(ctx expr.EvalContext, node *expr.TriNode) (value.Value, bool) {
 //
 //     A   IN   (b,c,d)
 //
-func walkMulti(ctx expr.EvalContext, node *expr.MultiArgNode) (value.Value, bool) {
+func walkMulti(ctx expr.EvalContext, node *expr.MultiArgNode) (value.Value, error) {
 
 	a, aok := Eval(ctx, node.Args[0])
 	//u.Debugf("multi:  %T:%v  %v", a, a, node.Operator)
@@ -556,7 +554,7 @@ func walkMulti(ctx expr.EvalContext, node *expr.MultiArgNode) (value.Value, bool
 	return value.BoolValueFalse, true
 }
 
-func walkFunc(ctx expr.EvalContext, node *expr.FuncNode) (value.Value, bool) {
+func walkFunc(ctx expr.EvalContext, node *expr.FuncNode) (value.Value, error) {
 
 	//u.Debugf("walkFunc node: %v", node.StringAST())
 
