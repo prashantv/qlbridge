@@ -226,13 +226,13 @@ func Exists(ctx expr.EvalContext, item interface{}) (value.BoolValue, bool) {
 
 	switch node := item.(type) {
 	case expr.IdentityNode:
-		_, ok := ctx.Get(node.Text)
+		_, ok, _ := ctx.Get(node.Text)
 		if ok {
 			return value.BoolValueTrue, true
 		}
 		return value.BoolValueFalse, true
 	case expr.StringNode:
-		_, ok := ctx.Get(node.Text)
+		_, ok, _ := ctx.Get(node.Text)
 		if ok {
 			return value.BoolValueTrue, true
 		}

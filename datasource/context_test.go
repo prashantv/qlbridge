@@ -52,7 +52,7 @@ func TestNested(t *testing.T) {
 }
 
 func checkval(t *testing.T, r expr.ContextReader, key string, expected value.Value) {
-	val, ok := r.Get(key)
+	val, ok, _ := r.Get(key)
 	assert.T(t, ok)
 	assert.Equalf(t, expected, val, "%s expected: %v  got:%v", key, expected, val)
 }

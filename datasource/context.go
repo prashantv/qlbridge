@@ -92,12 +92,12 @@ func (m *SqlDriverMessageMap) Body() interface{}         { return m }
 func (m *SqlDriverMessageMap) Values() []driver.Value    { return m.row }
 func (m *SqlDriverMessageMap) SetRow(row []driver.Value) { m.row = row }
 func (m *SqlDriverMessageMap) Ts() time.Time             { return time.Time{} }
-func (m *SqlDriverMessageMap) Get(key string) (value.Value, error) {
+func (m *SqlDriverMessageMap) Get(key string) (value.Value, bool, error) {
 	if idx, ok := m.colindex[key]; ok {
-		return value.NewValue(m.row[idx]), nil
+		return value.NewValue(m.row[idx]), true, nil
 	}
 	//u.Debugf("could not find: %v in %#v", key, m.colindex)
-	return nil, nil
+	return nil, false, nil
 }
 func (m *SqlDriverMessageMap) Row() map[string]value.Value {
 	row := make(map[string]value.Value)
@@ -123,13 +123,13 @@ type ValueContextWrapper struct {
 func NewValueContextWrapper(msg *SqlDriverMessage, cols map[string]*expr.Column) *ValueContextWrapper {
 	return &ValueContextWrapper{msg, cols}
 }
-func (m *ValueContextWrapper) Get(key string) (value.Value, bool) {
+func (m *ValueContextWrapper) Get(key string) (value.Value, bool, error) {
 	if col, ok := m.cols[key]; ok {
 		if col.Index < len(m.Vals) {
-			return value.NewValue(m.Vals[col.Index]), nil
+			return value.NewValue(m.Vals[col.Index]), true, nil
 		}
 	}
-	return nil, nil
+	return nil, false, nil
 }
 func (m *ValueContextWrapper) Row() map[string]value.Value {
 	row := make(map[string]value.Value)
@@ -178,10 +178,10 @@ func (m *ContextSimple) Row() map[string]value.Value { return m.Data }
 func (m *ContextSimple) Body() interface{}           { return m }
 func (m *ContextSimple) Id() uint64                  { return m.keyval }
 func (m *ContextSimple) Ts() time.Time               { return m.ts }
-func (m ContextSimple) Get(key string) (value.Value, bool) {
-	val, _ := m.Data[key]
+func (m ContextSimple) Get(key string) (value.Value, bool, error) {
+	val, exists := m.Data[key]
 	//u.Infof("key:%q  ok?%v v: %#v", key, ok, val)
-	return val, true
+	return val, exists, nil
 }
 
 func (m *ContextSimple) Put(col expr.SchemaInfo, rctx expr.ContextReader, v value.Value) error {
@@ -223,15 +223,15 @@ func (m *ContextUrlValues) String() string {
 	}
 	return m.Data.Encode()
 }
-func (m ContextUrlValues) Get(key string) (value.Value, bool) {
+func (m ContextUrlValues) Get(key string) (value.Value, bool, error) {
 	vals, ok := m.Data[key]
 	if ok {
 		if len(vals) == 1 {
-			return value.NewValue(vals[0]), true
+			return value.NewValue(vals[0]), true, nil
 		}
-		return value.NewValue(vals), true
+		return value.NewValue(vals), true, nil
 	}
-	return nil, true
+	return nil, false, nil
 }
 func (m ContextUrlValues) Row() map[string]value.Value {
 	mi := make(map[string]value.Value)
@@ -275,14 +275,14 @@ type NestedContextReader struct {
 	ts      time.Time
 }
 
-func (n *NestedContextReader) Get(key string) (value.Value, bool) {
+func (n *NestedContextReader) Get(key string) (value.Value, bool, error) {
 	for _, r := range n.readers {
-		val, ok := r.Get(key)
+		val, ok, _ := r.Get(key)
 		if ok && val != nil {
-			return val, ok
+			return val, ok, nil
 		}
 	}
-	return nil, true
+	return nil, false, nil
 }
 
 func (n *NestedContextReader) Row() map[string]value.Value {

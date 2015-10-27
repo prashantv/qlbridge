@@ -55,14 +55,17 @@ func makeFunc(name string, fn interface{}) Func {
 	funcType := funcRv.Type()
 
 	// Verify Return Values are appropriate
-	if funcType.NumOut() != 2 {
-		panic(fmt.Sprintf("%s must have 2 return values:   %s(Value, bool)", name, name))
+	if funcType.NumOut() != 3 {
+		panic(fmt.Sprintf("%s must have 3 return values:   %s(Value, bool, error)", name, name))
 	}
 
 	f.ReturnValueType = value.ValueTypeFromRT(funcType.Out(0))
 
 	if funcType.Out(1).Kind() != reflect.Bool {
-		panic("Must have bool as 3rd return value (Value, bool)")
+		panic("Must have bool as 3rd return value (Value, bool, error)")
+	}
+	if _, ok := funcType.Out(2).(error); !ok {
+		panic(fmt.Sprintf("Must have error as 3rd return value (Value, bool, error) %#v", fn))
 	}
 	f.F = funcRv
 	methodNumArgs := funcType.NumIn()

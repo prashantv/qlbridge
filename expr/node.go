@@ -161,7 +161,7 @@ type (
 	// Context Reader is interface to read the context of message/row/command
 	//  being evaluated
 	ContextReader interface {
-		Get(key string) (value.Value, error)
+		Get(key string) (value.Value, bool, error)
 		Row() map[string]value.Value
 		Ts() time.Time
 	}
