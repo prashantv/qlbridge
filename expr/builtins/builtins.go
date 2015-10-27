@@ -361,7 +361,7 @@ func Lower(ctx expr.EvalContext, item value.Value) (value.StringValue, bool) {
 // choose OneOf these fields, first non-null
 func OneOfFunc(ctx expr.EvalContext, vals ...value.Value) (value.Value, bool) {
 	for _, v := range vals {
-		if v.Err() || v.Nil() {
+		if v == nil || v.Err() || v.Nil() {
 			// continue, ignore
 		} else if !value.IsNilIsh(v.Rv()) {
 			return v, true
@@ -964,18 +964,18 @@ func Qs(ctx expr.EvalContext, urlItem, keyItem value.Value) (value.StringValue, 
 		val = itemT.Val()[0]
 	}
 	if val == "" {
-		return value.EmptyStringValue, false
+		return value.EmptyStringValue, true
 	}
 	urlstr := strings.ToLower(val)
 	if len(urlstr) < 8 {
-		return value.EmptyStringValue, false
+		return value.EmptyStringValue, true
 	}
 	keyVal, ok := value.ToString(keyItem.Rv())
 	if !ok {
-		return value.EmptyStringValue, false
+		return value.EmptyStringValue, true
 	}
 	if keyVal == "" {
-		return value.EmptyStringValue, false
+		return value.EmptyStringValue, true
 	}
 	if !strings.HasPrefix(urlstr, "http") {
 		urlstr = "http://" + urlstr
@@ -984,14 +984,14 @@ func Qs(ctx expr.EvalContext, urlItem, keyItem value.Value) (value.StringValue, 
 		//u.Infof("url.parse: %#v", urlParsed)
 		qsval, ok := urlParsed.Query()[keyVal]
 		if !ok {
-			return value.EmptyStringValue, false
+			return value.EmptyStringValue, true
 		}
 		if len(qsval) > 0 {
 			return value.NewStringValue(qsval[0]), true
 		}
 	}
 
-	return value.EmptyStringValue, false
+	return value.EmptyStringValue, true
 }
 
 // urlmain remove the querystring and scheme from url
@@ -1156,13 +1156,13 @@ func TimeExtractFunc(ctx expr.EvalContext, items ...value.Value) (value.StringVa
 		if !t.IsZero() {
 			return value.NewStringValue(t.String()), true
 		}
-		return value.EmptyStringValue, false
+		return value.EmptyStringValue, true
 
 	case 1:
 		// if only 1 item, convert item to time
 		dateStr, ok := value.ToString(items[0].Rv())
 		if !ok {
-			return value.EmptyStringValue, false
+			return value.EmptyStringValue, true
 		}
 		t, err := dateparse.ParseAny(dateStr)
 		if err != nil {
@@ -1176,12 +1176,12 @@ func TimeExtractFunc(ctx expr.EvalContext, items ...value.Value) (value.StringVa
 		// Use leekchan/timeutil package
 		dateStr, ok := value.ToString(items[0].Rv())
 		if !ok {
-			return value.EmptyStringValue, false
+			return value.EmptyStringValue, true
 		}
 
 		formatStr, ok := value.ToString(items[1].Rv())
 		if !ok {
-			return value.EmptyStringValue, false
+			return value.EmptyStringValue, true
 		}
 
 		t, err := dateparse.ParseAny(dateStr)
@@ -1193,6 +1193,6 @@ func TimeExtractFunc(ctx expr.EvalContext, items ...value.Value) (value.StringVa
 		return value.NewStringValue(formatted), true
 
 	default:
-		return value.EmptyStringValue, false
+		return value.EmptyStringValue, true
 	}
 }

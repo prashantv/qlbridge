@@ -632,6 +632,7 @@ func walkFunc(ctx expr.EvalContext, node *expr.FuncNode) (value.Value, bool) {
 				v = value.NewStringValue("")
 			default:
 				u.Warnf("un-handled type:  %v  %T", v, v)
+				v = value.NewNilValue()
 			}
 
 			funcArgs = append(funcArgs, reflect.ValueOf(v))
@@ -648,7 +649,7 @@ func walkFunc(ctx expr.EvalContext, node *expr.FuncNode) (value.Value, bool) {
 	// check if has an error response?
 	if len(fnRet) > 1 && !fnRet[1].Bool() {
 		// What do we do if not ok?
-		return value.EmptyStringValue, false
+		return value.NilValueVal, true
 	}
 	//u.Debugf("response %v %v  %T", node.F.Name, fnRet[0].Interface(), fnRet[0].Interface())
 	return fnRet[0].Interface().(value.Value), true
