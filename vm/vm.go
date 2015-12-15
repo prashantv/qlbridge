@@ -433,11 +433,11 @@ func walkUnary(ctx expr.EvalContext, node *expr.UnaryNode) (value.Value, bool) {
 		switch node.Operator.T {
 		case lex.TokenExists:
 			return value.NewBoolValue(false), true
-		case lex.TokenNegate:
-			return value.NewBoolValue(true), true
+			// case lex.TokenNegate:
+			// 	return value.NewBoolValue(true), true
 		}
 		u.Debugf("unary could not evaluate for[ %s ] and %#v", node.String(), node)
-		return a, false
+		return nil, false
 	}
 
 	switch node.Operator.T {
